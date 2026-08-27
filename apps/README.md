@@ -128,6 +128,43 @@ user's run.
 Measured on a clean build: **334 MB image, ~110 MB idle memory, 57 MB of disk
 per completed annual run.**
 
+### Render
+
+A blueprint lives at the repository root in `render.yaml`; point Render at the
+repo and it configures the service. To set it up by hand instead:
+
+| Setting | Value |
+|---|---|
+| Language / Runtime | Docker |
+| Branch | `master` |
+| **Dockerfile Path** | `./apps/Dockerfile` |
+| **Docker Build Context Directory** | `./apps` |
+| Health Check Path | `/api/health` |
+| Instances | **1 — do not scale out** |
+
+Both Docker paths matter, and the context is the one that bites. A context of
+`app` rather than `apps` fails the build with:
+
+```
+error: invalid local: resolve : lstat /opt/render/project/src/app: no such file
+```
+
+Render injects `PORT`; the container honours it. Set `DHC_PASSWORD` and
+`DHC_USERNAME` in the dashboard, and let Render generate `DHC_SECRET` — without
+it the signing key is regenerated at boot and everyone is signed out on every
+restart.
+
+**What the free plan means here.** The instance sleeps after roughly 15 minutes
+of inactivity and its disk is ephemeral, so the first request after a sleep
+pays a cold start *and* finds no previous runs: completed simulations and their
+`?job=` links do not survive. It also has 512 MB of RAM and a fraction of a
+CPU, so an annual run that takes ~6-10 s locally will take substantially
+longer. Lower the timestep in *Setup → Inputs* to trade fidelity for
+turnaround, and expect to re-run rather than revisit.
+
+For results that outlive a sleep, use a paid instance with a disk mounted at
+`/data`.
+
 ### Northflank
 
 | Setting | Value |

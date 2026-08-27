@@ -1,0 +1,49 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# The service builds from `apps/`, not the repository root. The EnergyPlus
+# source tree that surrounds it is not part of the image and would add ~1 GB
+# to the build context if it were.
+#
+# Apply with: Render dashboard → New → Blueprint → point at this repo.
+
+services:
+  - type: web
+    name: plantworks
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: master
+
+    # Both paths matter. `dockerContext` is the directory sent to the builder;
+    # `dockerfilePath` is resolved from the repo root. Setting the context to
+    # `app` (no "s") is what produces
+    #   lstat /opt/render/project/src/app: no such file or directory
+    dockerfilePath: ./apps/Dockerfile
+    dockerContext: ./apps
+
+    healthCheckPath: /api/health
+
+    envVars:
+      # Session signing key. Generated once by Render and kept across deploys,
+      # so people stay signed in. Without it the key is regenerated at boot and
+      # every session drops on restart.
+      - key: DHC_SECRET
+        generateValue: true
+
+      # Set these in the dashboard. `sync: false` keeps them out of the repo.
+      # Leaving DHC_PASSWORD unset means the app runs on the shipped demo
+      # password on a public URL.
+      - key: DHC_USERNAME
+        sync: false
+      - key: DHC_PASSWORD
+        sync: false
+
+      # One EnergyPlus run at a time: the free instance has 512 MB and a
+      # fraction of a CPU, and a second concurrent run would contend for both.
+      - key: DHC_MAX_CONCURRENT
+        value: "1"
+
+      # The free plan has no persistent disk, so runs are lost when the
+      # instance sleeps. Keep few of them; each completed year is ~57 MB.
+      - key: DHC_JOB_RETENTION
+        value: "3"
