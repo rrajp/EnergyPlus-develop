@@ -1,0 +1,872 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How Plantworks drives EnergyPlus</title>
+<meta name="description" content="What the interface collects, what it hands EnergyPlus, and how three performance curves turn one chiller into a year of hourly results." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* Same tokens as the app: colour is data, not decoration. A chiller is this
+   blue here, on the mimic panel, and in every chart. */
+:root{
+  --chw:#2E86E8; --chw-soft:#DCEBFA;
+  --cw:#00A15C;  --cw-soft:#D3F0E2;
+  --hhw:#E05A28; --hhw-soft:#FBE3D8;
+  --pump:#C557BC;--pump-soft:#F7E0F5;
+  --live:#C97A10;--live-soft:#FBEBCF;
+  --ground:#EBEFF4; --panel:#fff; --sunk:#F4F7FA;
+  --ink:#0C1A24; --ink2:#3A4C59; --muted:#6B7C89; --faint:#9AA8B3;
+  --line:#D5DEE6; --line2:#B9C6D1;
+  --display:'Archivo',system-ui,sans-serif;
+  --body:'IBM Plex Sans',system-ui,sans-serif;
+  --data:'IBM Plex Mono',ui-monospace,monospace;
+  --r:6px; --shadow:0 1px 3px rgb(12 26 36/.08);
+  --grid:rgb(12 26 36/.05);
+}
+@media (prefers-color-scheme:dark){
+ :root{
+  --chw:#4A93E2; --chw-soft:#14283C;
+  --cw:#16A868;  --cw-soft:#0D2B1F;
+  --hhw:#E36537; --hhw-soft:#35190F;
+  --pump:#C95FAF;--pump-soft:#2E1630;
+  --live:#E9A63A;--live-soft:#3A2A0E;
+  --ground:#0B141C; --panel:#121F2A; --sunk:#0E1922;
+  --ink:#DEE9F1; --ink2:#A9BCCB; --muted:#7A8D9C; --faint:#566878;
+  --line:#22333F; --line2:#33495A;
+  --shadow:0 1px 3px rgb(0 0 0/.4);
+  --grid:rgb(160 200 230/.05);
+ }
+}
+*,*::before,*::after{box-sizing:border-box}*{margin:0}
+body{
+  background:
+    linear-gradient(var(--grid) 1px,transparent 1px) 0 0/100% 26px,
+    linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/26px 100%,
+    var(--ground);
+  color:var(--ink);font-family:var(--body);line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1120px;margin:0 auto;padding:36px 20px 90px}
+.tag{font-family:var(--data);font-size:10px;font-weight:500;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--muted)}
+.num{font-family:var(--data);font-variant-numeric:tabular-nums}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(30px,5vw,46px);
+  line-height:1.05;letter-spacing:-.025em;margin:10px 0 12px}
+h2{font-family:var(--display);font-weight:600;font-size:22px;letter-spacing:-.015em;margin:0 0 6px}
+h3{font-family:var(--display);font-weight:600;font-size:14px;margin:0 0 8px}
+p{color:var(--ink2);margin:0 0 12px;max-width:74ch}
+.lede{font-size:17px;color:var(--ink2);max-width:70ch}
+code{font-family:var(--data);font-size:.88em;background:var(--sunk);
+  border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--ink)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow)}
+section{margin-top:44px}
+.sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;
+  padding-bottom:9px;border-bottom:1px solid var(--line)}
+.sec-n{font-family:var(--data);font-size:11px;font-weight:600;color:var(--panel);
+  background:var(--ink);border-radius:50%;width:21px;height:21px;flex:none;
+  display:grid;place-items:center;align-self:center}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:820px){.grid2,.grid3{grid-template-columns:1fr}}
+.card{padding:14px 16px}
+.rail{border-left:3px solid var(--chw);padding-left:12px}
+.rail-cw{border-color:var(--cw)}.rail-hhw{border-color:var(--hhw)}
+.rail-pump{border-color:var(--pump)}.rail-live{border-color:var(--live)}
+.note{background:var(--live-soft);border:1px solid color-mix(in srgb,var(--live) 30%,transparent);
+  border-radius:var(--r);padding:12px 14px;margin:14px 0}
+.note .tag{color:var(--live)}
+figure{margin:0}
+figcaption{font-size:12px;color:var(--muted);margin-top:8px}
+svg{display:block;max-width:100%}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line2);
+  font-family:var(--data);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);font-weight:600}
+td{padding:7px 9px;border-bottom:1px solid var(--line);color:var(--ink2)}
+tr:last-child td{border-bottom:none}
+td.n{text-align:right;font-family:var(--data);font-variant-numeric:tabular-nums;color:var(--ink)}
+.chipline{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{font-family:var(--data);font-size:11px;padding:3px 8px;border-radius:99px;
+  border:1px solid var(--line);background:var(--sunk);color:var(--ink2)}
+.chip-chw{border-color:color-mix(in srgb,var(--chw) 45%,transparent);color:var(--chw)}
+.chip-cw{border-color:color-mix(in srgb,var(--cw) 45%,transparent);color:var(--cw)}
+.chip-hhw{border-color:color-mix(in srgb,var(--hhw) 45%,transparent);color:var(--hhw)}
+.chip-pump{border-color:color-mix(in srgb,var(--pump) 45%,transparent);color:var(--pump)}
+
+/* interactive lab */
+.lab{padding:18px}
+.ctrls{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:6px}
+@media(max-width:820px){.ctrls{grid-template-columns:1fr}}
+.ctrl label{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ctrl output{font-family:var(--data);font-size:15px;font-weight:500;color:var(--ink)}
+input[type=range]{width:100%;appearance:none;height:22px;background:none;cursor:pointer;margin-top:2px}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:99px;background:var(--line2)}
+input[type=range]::-webkit-slider-thumb{appearance:none;width:15px;height:15px;margin-top:-5.5px;
+  border-radius:50%;background:var(--panel);border:2px solid var(--chw);box-shadow:var(--shadow)}
+input[type=range]::-moz-range-track{height:4px;border-radius:99px;background:var(--line2)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;
+  background:var(--panel);border:2px solid var(--chw)}
+.plots{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:18px 0 6px}
+@media(max-width:820px){.plots{grid-template-columns:1fr}}
+.plot{background:var(--sunk);border:1px solid var(--line);border-radius:var(--r);padding:10px}
+.chain{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin-top:16px}
+.step{flex:1 1 150px;background:var(--sunk);border:1px solid var(--line);
+  border-radius:var(--r);padding:9px 11px;min-width:0}
+.step b{display:block;font-family:var(--data);font-size:19px;font-weight:500;
+  letter-spacing:-.02em;margin-top:3px;color:var(--ink)}
+.step small{color:var(--muted);font-size:11px;display:block;margin-top:2px}
+.step-out{background:var(--chw-soft);border-color:color-mix(in srgb,var(--chw) 40%,transparent)}
+.step-pow{background:var(--live-soft);border-color:color-mix(in srgb,var(--live) 40%,transparent)}
+.eq{font-family:var(--data);font-size:13px;background:var(--sunk);border:1px solid var(--line);
+  border-left:3px solid var(--chw);border-radius:var(--r);padding:11px 13px;margin:12px 0;
+  overflow-x:auto;white-space:pre;color:var(--ink)}
+.warnbar{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--ink2)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px}
+.lg{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2)}
+.sw{width:13px;height:3px;border-radius:2px}
+.foot{margin-top:52px;padding-top:16px;border-top:1px solid var(--line);
+  font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="tag">Plantworks · how the simulation actually happens</span>
+  <h1>One chiller, three curves,<br>8,760 hours.</h1>
+  <p class="lede">
+    The interface never estimates anything itself. Every number you read comes
+    out of EnergyPlus. This page shows what the screen collects, what it hands
+    the engine, and how a handful of coefficients become a year of hourly plant
+    behaviour.
+  </p>
+</header>
+
+<!-- ================================================================= -->
+<section>
+  <div class="sec-head"><span class="sec-n">1</span><h2>The path from a form field to a result</h2></div>
+  <p>
+    Nothing is precomputed and no correlation is applied in the browser. The
+    UI's whole job is to assemble a valid model; the engine does the physics.
+  </p>
+
+  <figure class="panel card">
+  <svg viewBox="0 0 1040 250" role="img" aria-label="Pipeline from the browser through the epJSON builder to EnergyPlus and back">
+    <defs>
+      <marker id="ar" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,0 L8,4 L0,8 z" fill="var(--line2)"/>
+      </marker>
+      <marker id="arlive" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,0 L8,4 L0,8 z" fill="var(--live)"/>
+      </marker>
+    </defs>
+
+    <!-- boxes -->
+    <g font-family="var(--display)" font-size="12.5" font-weight="600">
+      <rect x="6"   y="60" width="150" height="66" rx="5" fill="var(--panel)" stroke="var(--chw)" stroke-width="1.6"/>
+      <text x="20" y="84" fill="var(--ink)">Browser</text>
+      <text x="20" y="102" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">PlantConfig (JSON)</text>
+      <text x="20" y="116" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">your inputs only</text>
+
+      <rect x="196" y="60" width="158" height="66" rx="5" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="210" y="84" fill="var(--ink)">Readiness</text>
+      <text x="210" y="102" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">blocks impossible</text>
+      <text x="210" y="116" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">models before CPU</text>
+
+      <rect x="394" y="60" width="168" height="66" rx="5" fill="var(--panel)" stroke="var(--line2)"/>
+      <text x="408" y="84" fill="var(--ink)">epJSON builder</text>
+      <text x="408" y="102" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">loops · branches · nodes</text>
+      <text x="408" y="116" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">curves · setpoints</text>
+
+      <rect x="602" y="46" width="180" height="94" rx="5" fill="var(--panel)" stroke="var(--live)" stroke-width="1.8"/>
+      <text x="616" y="70" fill="var(--ink)">EnergyPlus</text>
+      <text x="616" y="88" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">child process, C API</text>
+      <text x="616" y="104" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">8,760 h × 4 steps</text>
+      <text x="616" y="120" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">the only physics here</text>
+
+      <rect x="822" y="60" width="150" height="66" rx="5" fill="var(--panel)" stroke="var(--chw)" stroke-width="1.6"/>
+      <text x="836" y="84" fill="var(--ink)">Results</text>
+      <text x="836" y="102" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">eplusout.sql</text>
+      <text x="836" y="116" font-family="var(--data)" font-size="10" font-weight="400" fill="var(--muted)">→ charts, TSE, QA</text>
+    </g>
+
+    <!-- flow arrows -->
+    <g stroke="var(--line2)" stroke-width="1.6" fill="none" marker-end="url(#ar)">
+      <path d="M158 93 H192"/>
+      <path d="M356 93 H390"/>
+      <path d="M564 93 H598"/>
+      <path d="M784 93 H818"/>
+    </g>
+
+    <!-- live telemetry return path -->
+    <path d="M692 140 V186 H300 V126" stroke="var(--live)" stroke-width="1.8" fill="none"
+          stroke-dasharray="6 5" marker-end="url(#arlive)"/>
+    <text x="316" y="180" font-family="var(--data)" font-size="10" fill="var(--live)">
+      live: progress % · log lines · variable values, sampled mid-run
+    </text>
+
+    <!-- inputs feeding the builder -->
+    <g font-family="var(--data)" font-size="10" fill="var(--muted)">
+      <text x="394" y="28">fed in alongside your inputs:</text>
+      <text x="394" y="212">EPW weather · 8,760-h load CSV · 271 reference chiller curve sets</text>
+    </g>
+    <g stroke="var(--line2)" stroke-width="1.2" fill="none" stroke-dasharray="3 3" marker-end="url(#ar)">
+      <path d="M478 200 V130"/>
+      <path d="M478 34 V56"/>
+    </g>
+  </svg>
+  <figcaption>
+    The dashed amber path is what most tools cannot do: values are read out of
+    the running solver, so the plant diagram animates while the year is still
+    being solved.
+  </figcaption>
+  </figure>
+</section>
+
+<!-- ================================================================= -->
+<section>
+  <div class="sec-head"><span class="sec-n">2</span><h2>What the screen collects, and where each field lands</h2></div>
+  <p>
+    Every control maps to a specific EnergyPlus object. Nothing is cosmetic.
+    Colour marks which loop a parameter belongs to.
+  </p>
+
+  <div class="grid2">
+    <div class="panel card">
+      <div class="rail">
+        <h3>Per chiller</h3>
+        <p style="font-size:13px;margin-bottom:6px">
+          Capacity and COP are yours. The rating temperatures and the three
+          curves come from a reference machine — see section 5.
+        </p>
+        <div class="chipline">
+          <span class="chip chip-chw">capacity_kw</span>
+          <span class="chip chip-chw">reference_cop</span>
+          <span class="chip chip-chw">ref_chw_leaving_c</span>
+          <span class="chip chip-chw">ref_cond_entering_c</span>
+          <span class="chip chip-chw">min_part_load_ratio</span>
+          <span class="chip chip-chw">condenser: water / air</span>
+          <span class="chip chip-chw">catalog_key</span>
+        </div>
+        <p class="tag" style="margin-top:10px">→ Chiller:Electric:EIR + 3 Curve objects</p>
+      </div>
+    </div>
+
+    <div class="panel card">
+      <div class="rail rail-cw">
+        <h3>Heat rejection</h3>
+        <p style="font-size:13px;margin-bottom:6px">
+          Approach and range size the tower. The setpoint decides how hard the
+          chillers have to lift, which is the single biggest lever on COP.
+        </p>
+        <div class="chipline">
+          <span class="chip chip-cw">tower model (VS / 2-spd / 1-spd)</span>
+          <span class="chip chip-cw">design_approach_c</span>
+          <span class="chip chip-cw">design_range_c</span>
+          <span class="chip chip-cw">follow_oa_wetbulb</span>
+          <span class="chip chip-cw">min / max setpoint</span>
+        </div>
+        <p class="tag" style="margin-top:10px">→ CoolingTower:* + SetpointManager:FollowOutdoorAirTemperature</p>
+      </div>
+    </div>
+
+    <div class="panel card">
+      <div class="rail rail-hhw">
+        <h3>Heating</h3>
+        <div class="chipline">
+          <span class="chip chip-hhw">capacity_kw</span>
+          <span class="chip chip-hhw">fuel</span>
+          <span class="chip chip-hhw">efficiency + curve</span>
+          <span class="chip chip-hhw">supply setpoint / ΔT</span>
+          <span class="chip chip-hhw">heat pump COP &amp; cut-off</span>
+        </div>
+        <p class="tag" style="margin-top:10px">→ Boiler:HotWater · HeatPump:PlantLoop:EIR:Heating</p>
+      </div>
+    </div>
+
+    <div class="panel card">
+      <div class="rail rail-pump">
+        <h3>Loops &amp; pumping</h3>
+        <p style="font-size:13px;margin-bottom:6px">
+          Design head is the quietest way to ruin a system COP — pump energy is
+          charged against the same cooling output.
+        </p>
+        <div class="chipline">
+          <span class="chip chip-pump">arrangement (pri-sec / VPF)</span>
+          <span class="chip chip-pump">design_head_pa</span>
+          <span class="chip chip-pump">chw setpoint / ΔT</span>
+          <span class="chip chip-pump">load_distribution</span>
+        </div>
+        <p class="tag" style="margin-top:10px">→ PlantLoop · Pump:* · Connector:Splitter/Mixer</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid3" style="margin-top:14px">
+    <div class="panel card"><div class="rail rail-live">
+      <h3>Weather</h3>
+      <p style="font-size:13px;margin:0">
+        An EPW supplies dry-bulb and wet-bulb for all 8,760 hours. Wet-bulb
+        drives the tower, which drives condenser temperature, which drives
+        chiller capacity and power.
+      </p>
+    </div></div>
+    <div class="panel card"><div class="rail rail-live">
+      <h3>Building load</h3>
+      <p style="font-size:13px;margin:0">
+        An 8,760-row CSV. Cooling is written as <em>negative</em> watts because
+        <code>LoadProfile:Plant</code> treats positive as heat removed.
+      </p>
+    </div></div>
+    <div class="panel card"><div class="rail rail-live">
+      <h3>Run period</h3>
+      <p style="font-size:13px;margin:0">
+        Timesteps per hour trades fidelity for turnaround. Plant sizing runs
+        first, against extreme days pulled from the EPW.
+      </p>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================================================================= -->
+<section>
+  <div class="sec-head"><span class="sec-n">3</span><h2>You add a chiller. What actually changes?</h2></div>
+  <p>
+    Adding a machine is not a row in a list — it rewrites the plant topology.
+    Ten objects appear, and three existing ones are edited. Nothing is
+    simulated until you press Run; until then the diagram and the readiness
+    checks are just reflecting the config.
+  </p>
+
+  <figure class="panel card">
+  <svg viewBox="0 0 1040 300" role="img" aria-label="Objects created when a chiller is added">
+    <g font-family="var(--data)" font-size="10.5">
+      <text x="8" y="16" fill="var(--muted)" letter-spacing=".1em">YOU CLICK “+ CHILLER”</text>
+
+      <!-- immediate -->
+      <rect x="8" y="28" width="300" height="118" rx="5" fill="var(--panel)" stroke="var(--line)"/>
+      <text x="22" y="50" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">Immediately, in the browser</text>
+      <text x="22" y="72"  fill="var(--ink2)">• a tile appears on the mimic diagram</text>
+      <text x="22" y="90"  fill="var(--ink2)">• installed capacity total updates</text>
+      <text x="22" y="108" fill="var(--ink2)">• readiness re-runs (N+1? tower present?)</text>
+      <text x="22" y="126" fill="var(--ink2)">• nothing is computed physically</text>
+
+      <!-- on run -->
+      <rect x="352" y="28" width="330" height="248" rx="5" fill="var(--panel)" stroke="var(--chw)" stroke-width="1.6"/>
+      <text x="366" y="50" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">On Run — objects created</text>
+      <g fill="var(--chw)">
+        <text x="366" y="74">Chiller:Electric:EIR</text>
+        <text x="366" y="92">Curve:Biquadratic  · CAPFT</text>
+        <text x="366" y="110">Curve:Biquadratic  · EIRFT</text>
+        <text x="366" y="128">Curve:Quadratic    · EIRFPLR</text>
+        <text x="366" y="146">Branch             · CHW side</text>
+        <text x="366" y="164">Branch             · condenser side</text>
+      </g>
+      <g fill="var(--muted)">
+        <text x="366" y="188">4 node names, unique to this machine</text>
+        <text x="366" y="206">(CHW in/out, condenser in/out)</text>
+      </g>
+      <text x="366" y="234" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">…and edited</text>
+      <g fill="var(--live)">
+        <text x="366" y="256">PlantEquipmentList · new entry, in order</text>
+        <text x="366" y="270">Splitter / Mixer   · branch added</text>
+      </g>
+
+      <!-- consequences -->
+      <rect x="726" y="28" width="306" height="248" rx="5" fill="var(--sunk)" stroke="var(--line)"/>
+      <text x="740" y="50" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">Consequences you did not ask for</text>
+      <g fill="var(--ink2)">
+        <text x="740" y="74">Loop design flow re-autosizes</text>
+        <text x="740" y="92">Primary pump flow follows it</text>
+        <text x="740" y="110">Condenser loop + tower resize</text>
+        <text x="740" y="128">Sequencing order changes:</text>
+        <text x="756" y="146" fill="var(--live)">lead-lag means the new unit</text>
+        <text x="756" y="162" fill="var(--live)">may run only at peak</text>
+        <text x="740" y="186">Each machine now sees a lower</text>
+        <text x="740" y="202">part-load ratio for the same load</text>
+        <text x="740" y="226" fill="var(--muted)">…which changes COP for every</text>
+        <text x="740" y="242" fill="var(--muted)">hour of the year — section 4.</text>
+      </g>
+    </g>
+    <g stroke="var(--line2)" stroke-width="1.5" fill="none" marker-end="url(#ar)">
+      <path d="M310 87 H348"/><path d="M684 152 H722"/>
+    </g>
+  </svg>
+  <figcaption>
+    Editing a parameter follows the same path — the model is regenerated from
+    scratch on every run, so there is no stale state to reconcile.
+  </figcaption>
+  </figure>
+
+  <div class="note">
+    <span class="tag">Why oversizing can make things worse</span>
+    <p style="margin:6px 0 0;font-size:13.5px">
+      Adding capacity you do not need pushes every machine down its part-load
+      curve. A plant with three 2,100 kW chillers on a 3,430 kW peak spends the
+      year at low PLR and returns a <em>worse</em> system COP than a
+      right-sized plant. The next section shows exactly why.
+    </p>
+  </div>
+</section>
+
+<!-- ================================================================= -->
+<section>
+  <div class="sec-head"><span class="sec-n">4</span><h2>The three curves — full load, part load, and everything between</h2></div>
+  <p>
+    A chiller in EnergyPlus is four numbers and three curves. The curves are
+    dimensionless multipliers, each normalised to <strong>1.0 at the machine's
+    own rating point</strong>. Everything else is interpolation away from that
+    point.
+  </p>
+
+  <div class="grid3">
+    <div class="panel card"><div class="rail">
+      <span class="tag">Curve 1 · capacity</span>
+      <h3 style="margin-top:4px">CAPFT</h3>
+      <p style="font-size:13px;margin:0">
+        How much cooling the machine <em>can</em> make right now, given the
+        chilled-water temperature it must produce and the condenser temperature
+        it must reject to. Hot day → less capacity.
+      </p>
+    </div></div>
+    <div class="panel card"><div class="rail rail-cw">
+      <span class="tag">Curve 2 · efficiency vs temperature</span>
+      <h3 style="margin-top:4px">EIRFT</h3>
+      <p style="font-size:13px;margin:0">
+        How much more power it burns per unit of cooling at those same two
+        temperatures. This is the “lift” penalty.
+      </p>
+    </div></div>
+    <div class="panel card"><div class="rail rail-live">
+      <span class="tag">Curve 3 · efficiency vs load</span>
+      <h3 style="margin-top:4px">EIRFPLR</h3>
+      <p style="font-size:13px;margin:0">
+        How much power it burns at partial load. This is the curve that decides
+        whether four small chillers beat two big ones.
+      </p>
+    </div></div>
+  </div>
+
+  <div class="eq">Q_available = Q_reference × CAPFT(T_chw_out , T_cond_in)
+PLR         = Q_demand / Q_available
+FRAC        = min(1 , PLR / PLR_min)          ← below PLR_min the machine cycles
+Power       = (Q_available / COP_reference) × EIRFT(T_chw_out , T_cond_in) × EIRFPLR(PLR) × FRAC
+Q_condenser = Power × f_rejected + Q_evaporator</div>
+  <p style="font-size:12.5px;color:var(--muted)">
+    Verbatim from <code>ChillerElectricEIR.cc</code> — lines 2002 and 2292.
+    Not a paraphrase.
+  </p>
+
+  <!-- ---------------- interactive lab ---------------- -->
+  <div class="panel lab" id="lab" style="margin-top:18px">
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <h3 style="margin:0">Try it</h3>
+      <span class="tag" id="machine">Carrier 19XR · 1403 kW · COP 7.09</span>
+    </div>
+    <p style="font-size:13px;margin-bottom:14px">
+      Real coefficients from the reference machine a default 1,400 kW chiller
+      seeds from. Move the sliders and watch the chain recompute.
+    </p>
+
+    <div class="ctrls">
+      <div class="ctrl">
+        <label for="s-chw"><span class="tag">Chilled water leaving</span><output id="o-chw"></output></label>
+        <input id="s-chw" type="range" min="6.67" max="12.22" step="0.05" value="6.67" />
+      </div>
+      <div class="ctrl">
+        <label for="s-cond"><span class="tag">Condenser entering</span><output id="o-cond"></output></label>
+        <input id="s-cond" type="range" min="12.78" max="23.89" step="0.05" value="18" />
+      </div>
+      <div class="ctrl">
+        <label for="s-load"><span class="tag">Building load on this machine</span><output id="o-load"></output></label>
+        <input id="s-load" type="range" min="0" max="1450" step="5" value="1000" />
+      </div>
+    </div>
+
+    <div class="plots">
+      <div class="plot">
+        <span class="tag">CAPFT vs condenser temp</span>
+        <svg id="p-capft" viewBox="0 0 300 150"></svg>
+      </div>
+      <div class="plot">
+        <span class="tag">EIRFT vs condenser temp</span>
+        <svg id="p-eirft" viewBox="0 0 300 150"></svg>
+      </div>
+      <div class="plot">
+        <span class="tag">EIRFPLR vs part load</span>
+        <svg id="p-plr" viewBox="0 0 300 150"></svg>
+      </div>
+    </div>
+
+    <div class="chain">
+      <div class="step"><span class="tag">CAPFT</span><b id="v-capft">—</b><small>capacity multiplier</small></div>
+      <div class="step step-out"><span class="tag">Available capacity</span><b id="v-avail">—</b><small>kW of cooling</small></div>
+      <div class="step"><span class="tag">Part load ratio</span><b id="v-plr">—</b><small id="l-plr">demand ÷ available</small></div>
+      <div class="step"><span class="tag">EIRFT × EIRFPLR</span><b id="v-eir">—</b><small>power multipliers</small></div>
+      <div class="step step-pow"><span class="tag">Electric power</span><b id="v-pow">—</b><small>kW input</small></div>
+      <div class="step step-out"><span class="tag">Operating COP</span><b id="v-cop">—</b><small>cooling ÷ power</small></div>
+    </div>
+
+    <div class="warnbar" id="verdict" style="margin-top:14px"></div>
+  </div>
+
+  <div class="grid2" style="margin-top:16px">
+    <div class="panel card">
+      <h3>Why part load dominates the annual answer</h3>
+      <p style="font-size:13.5px;margin:0">
+        A plant sits at peak load for a handful of hours a year and at 30–60%
+        for most of it. The EIRFPLR curve is therefore worth far more to the
+        annual total than the nameplate COP. On this machine, dropping to 50%
+        load costs only about 38% of full-load power — a variable-speed trait.
+        A fixed-speed machine would spend closer to 55%.
+      </p>
+    </div>
+    <div class="panel card">
+      <h3>Below the minimum, machines cycle</h3>
+      <p style="font-size:13.5px;margin:0">
+        Under <code>PLR_min</code> the chiller cannot modulate any further, so
+        it switches on and off within the timestep. EnergyPlus models that with
+        <code>FRAC</code>, which linearly scales power by the fraction of the
+        step the machine is running. Efficiency stops improving and starts
+        degrading — visible as the flat tail on the third plot.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================= -->
+<section>
+  <div class="sec-head"><span class="sec-n">5</span><h2>Your numbers × a real machine's curves</h2></div>
+  <p>
+    You know your plant's capacity and COP. You almost never know its six CAPFT
+    coefficients. So the tool mines the reference datasets EnergyPlus ships —
+    <strong>271 real machines</strong> from Carrier, McQuay, Multistack, Trane
+    and York — and borrows the curve <em>shape</em> from the closest one.
+  </p>
+
+  <figure class="panel card">
+  <svg viewBox="0 0 1040 232" role="img" aria-label="How user input and catalog curves are merged">
+    <g font-family="var(--data)" font-size="10.5">
+      <!-- yours -->
+      <rect x="8" y="34" width="250" height="120" rx="5" fill="var(--panel)" stroke="var(--chw)" stroke-width="1.6"/>
+      <text x="22" y="56" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">What you supply</text>
+      <g fill="var(--chw)">
+        <text x="22" y="80">capacity        1400 kW</text>
+        <text x="22" y="98">reference COP   6.10</text>
+        <text x="22" y="116">condenser type  water</text>
+      </g>
+      <text x="22" y="140" fill="var(--muted)">magnitude</text>
+
+      <!-- catalog -->
+      <rect x="8" y="168" width="250" height="56" rx="5" fill="var(--panel)" stroke="var(--cw)" stroke-width="1.6"/>
+      <text x="22" y="190" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">Nearest reference machine</text>
+      <text x="22" y="210" fill="var(--cw)">Carrier 19XR 1403 kW / 7.09 COP / VSD</text>
+
+      <!-- merge -->
+      <rect x="330" y="60" width="300" height="132" rx="5" fill="var(--sunk)" stroke="var(--line2)"/>
+      <text x="344" y="82" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">Merged model</text>
+      <g fill="var(--chw)">
+        <text x="344" y="106">reference_capacity  ← yours</text>
+        <text x="344" y="124">reference_cop       ← yours</text>
+      </g>
+      <g fill="var(--cw)">
+        <text x="344" y="146">CAPFT / EIRFT / EIRFPLR ← catalog</text>
+        <text x="344" y="164">rating temperatures     ← catalog</text>
+      </g>
+      <text x="344" y="184" fill="var(--live)">…and the swap is reported to you</text>
+
+      <!-- result -->
+      <rect x="702" y="60" width="330" height="132" rx="5" fill="var(--panel)" stroke="var(--live)" stroke-width="1.6"/>
+      <text x="716" y="82" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">Why the rating point travels with the curves</text>
+      <g fill="var(--ink2)">
+        <text x="716" y="106">A CAPFT curve equals 1.0 only at its</text>
+        <text x="716" y="124">own rating temperatures. Keep yours,</text>
+        <text x="716" y="142">and it evaluates to 0.760 instead —</text>
+        <text x="716" y="160">the chiller silently delivers 76% of</text>
+        <text x="716" y="178">the capacity you typed.</text>
+      </g>
+    </g>
+    <g stroke="var(--line2)" stroke-width="1.5" fill="none" marker-end="url(#ar)">
+      <path d="M260 94 H326"/><path d="M260 196 H300 V130 H326"/><path d="M632 126 H698"/>
+    </g>
+  </svg>
+  <figcaption>
+    This was a real defect during development. Fixing it moved chiller COP from
+    5.94 to 6.29 and cut EnergyPlus warnings from 180,619 to 14.
+  </figcaption>
+  </figure>
+
+  <div class="note">
+    <span class="tag">What this means for trust</span>
+    <p style="margin:6px 0 0;font-size:13.5px">
+      Capacity and COP are exactly what you entered. The <em>shape</em> of the
+      part-load and temperature response is a real machine's, not an invention
+      — but it is not <em>your</em> machine's. Pick the actual model from the
+      catalog picker when you know it. Every substitution the builder makes is
+      printed in Model notes on the results screen.
+    </p>
+  </div>
+</section>
+
+<!-- ================================================================= -->
+<section>
+  <div class="sec-head"><span class="sec-n">6</span><h2>How one hour becomes a year</h2></div>
+  <p>
+    The curves above are evaluated at every timestep, for every machine, with
+    temperatures that the rest of the loop is simultaneously solving. This is
+    the loop EnergyPlus walks 35,040 times.
+  </p>
+
+  <figure class="panel card">
+  <svg viewBox="0 0 1040 268" role="img" aria-label="The per-timestep solution loop">
+    <g font-family="var(--data)" font-size="10.5">
+      <circle cx="118" cy="60" r="4" fill="var(--live)"/>
+      <text x="132" y="64" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">1 · Weather</text>
+      <text x="132" y="82" fill="var(--muted)">EPW gives dry-bulb + wet-bulb for this hour</text>
+
+      <circle cx="118" cy="112" r="4" fill="var(--cw)"/>
+      <text x="132" y="116" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">2 · Tower sets condenser temperature</text>
+      <text x="132" y="134" fill="var(--muted)">wet-bulb + approach, clamped to min/max → this is CAPFT’s y input</text>
+
+      <circle cx="118" cy="164" r="4" fill="var(--chw)"/>
+      <text x="132" y="168" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">3 · Demand asks for cooling</text>
+      <text x="132" y="186" fill="var(--muted)">LoadProfile:Plant draws this hour’s watts from the CSV</text>
+
+      <circle cx="118" cy="216" r="4" fill="var(--live)"/>
+      <text x="132" y="220" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">4 · Operation scheme sequences the machines</text>
+      <text x="132" y="238" fill="var(--muted)">lead-lag, uniform load, or uniform PLR — your choice in Setup → Loops</text>
+
+      <path d="M118 66 V106 M118 118 V158 M118 170 V210" stroke="var(--line2)" stroke-width="1.4" marker-end="url(#ar)" fill="none"/>
+
+      <!-- sequencing ladder -->
+      <rect x="560" y="30" width="472" height="216" rx="5" fill="var(--sunk)" stroke="var(--line)"/>
+      <text x="576" y="52" font-family="var(--display)" font-size="12.5" font-weight="600" fill="var(--ink)">Sequential (lead-lag), 3 × 1400 kW</text>
+
+      <g>
+        <text x="576" y="80" fill="var(--muted)">load 900 kW</text>
+        <rect x="700" y="70" width="76" height="13" rx="2" fill="var(--chw)"/>
+        <rect x="782" y="70" width="76" height="13" rx="2" fill="var(--line)"/>
+        <rect x="864" y="70" width="76" height="13" rx="2" fill="var(--line)"/>
+        <text x="950" y="80" fill="var(--ink2)">PLR .64</text>
+
+        <text x="576" y="116" fill="var(--muted)">load 2200 kW</text>
+        <rect x="700" y="106" width="76" height="13" rx="2" fill="var(--chw)"/>
+        <rect x="782" y="106" width="76" height="13" rx="2" fill="var(--chw)"/>
+        <rect x="864" y="106" width="76" height="13" rx="2" fill="var(--line)"/>
+        <text x="950" y="116" fill="var(--ink2)">PLR .79</text>
+
+        <text x="576" y="152" fill="var(--muted)">load 3900 kW</text>
+        <rect x="700" y="142" width="76" height="13" rx="2" fill="var(--chw)"/>
+        <rect x="782" y="142" width="76" height="13" rx="2" fill="var(--chw)"/>
+        <rect x="864" y="142" width="76" height="13" rx="2" fill="var(--chw)"/>
+        <text x="950" y="152" fill="var(--ink2)">PLR .93</text>
+
+        <text x="576" y="188" fill="var(--muted)">load 300 kW</text>
+        <rect x="700" y="178" width="76" height="13" rx="2" fill="var(--live)"/>
+        <rect x="782" y="178" width="76" height="13" rx="2" fill="var(--line)"/>
+        <rect x="864" y="178" width="76" height="13" rx="2" fill="var(--line)"/>
+        <text x="950" y="188" fill="var(--live)">cycling</text>
+      </g>
+      <text x="576" y="222" fill="var(--muted)">Lead machine fills first. The last unit may run only a few</text>
+      <text x="576" y="238" fill="var(--muted)">hours a year — that is expected, not a bug.</text>
+    </g>
+  </svg>
+  <figcaption>
+    Steps 2–4 are solved together, not in sequence: condenser temperature
+    depends on the heat the chillers reject, which depends on the power they
+    draw, which depends on the condenser temperature. EnergyPlus iterates until
+    it converges, every timestep.
+  </figcaption>
+  </figure>
+</section>
+
+<!-- ================================================================= -->
+<section>
+  <div class="sec-head"><span class="sec-n">7</span><h2>From raw output to the numbers on screen</h2></div>
+  <p>
+    EnergyPlus writes an SQLite database. The server reads it and computes the
+    figures you see — none of them are estimated in the browser.
+  </p>
+
+  <div class="panel" style="overflow:hidden">
+    <table>
+      <thead><tr><th>What you read</th><th>Where it comes from</th><th style="width:34%">Worth knowing</th></tr></thead>
+      <tbody>
+        <tr><td>Cooling delivered</td><td class="n">Σ Chiller Evaporator Cooling Energy</td>
+            <td>Exceeds building load, because evaporators also remove distribution pump heat.</td></tr>
+        <tr><td>System COP</td><td class="n">cooling ÷ (chillers + towers + pumps)</td>
+            <td>Every parasitic is charged against it. This is not chiller COP.</td></tr>
+        <tr><td>TSE (compliance)</td><td class="n">1 ÷ system COP</td>
+            <td>Reference limits 0.24 / 0.19 kW/kW. Confirm against your code edition.</td></tr>
+        <tr><td>Unmet hours</td><td class="n">hours CHW supply &gt; setpoint + 1 K</td>
+            <td>The metric annual totals hide. Capacity derates as condenser temperature rises.</td></tr>
+        <tr><td>Peak demand</td><td class="n">max hourly plant electricity</td>
+            <td>An hourly mean, so true instantaneous peak is higher.</td></tr>
+        <tr><td>Live telemetry</td><td class="n">get_variable_value, mid-run</td>
+            <td>Sampled from the solver itself, not replayed afterwards.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <span class="tag">The honest limits</span>
+    <p style="margin:6px 0 0;font-size:13.5px">
+      Curve shapes are a reference machine's unless you pick your own. Heat
+      pumps use representative curves, not a catalog model. Sample load
+      profiles are synthetic — generated from an occupancy schedule and a
+      seasonal curve — so upload your own CSV for anything real. And a plant
+      that cannot meet its heating load will not simulate at all: the loop
+      temperature diverges, which is why that case is blocked before the run
+      rather than after.
+    </p>
+  </div>
+</section>
+
+<div class="foot">
+  Equations verified against <code>ChillerElectricEIR.cc</code> (EnergyPlus
+  26.1.0). Curve coefficients read from <code>DataSets/Chillers.idf</code> as
+  shipped with the engine. Plots below the sliders are live evaluations of
+  those coefficients, not illustrations.
+</div>
+
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // --- Carrier 19XR 1403kW/7.09COP/VSD, read from DataSets/Chillers.idf ----
+  const M = {
+    capKw: 1403.1, cop: 7.09,
+    refChw: 6.67, refCond: 12.78,
+    minPLR: 0.17, maxPLR: 1.03,
+    capft:  [0.9601814,-0.003596494,-0.001706786,0.006272429,-0.0009858212,0.002611673],
+    eirft:  [1.098641,-0.0248588,-0.0000624042,-0.001719488,0.0004887321,0.0000961808],
+    plr:    [0.08788698,0.2678891,0.644518],
+    xlo: 6.67, xhi: 12.22, ylo: 12.78, yhi: 23.89,
+  };
+
+  // EnergyPlus curve forms.
+  const biquad = (c,x,y) => c[0] + c[1]*x + c[2]*x*x + c[3]*y + c[4]*y*y + c[5]*x*y;
+  const quad   = (c,x)   => c[0] + c[1]*x + c[2]*x*x;
+  const clamp  = (v,a,b) => Math.min(b, Math.max(a, v));
+
+  const $ = (id) => document.getElementById(id);
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  /** Minimal line plot: axes, the curve, and the current operating point. */
+  function plot(svg, {xs, f, x0, xlabel, colour, ymin, ymax, marks}) {
+    const W = 300, H = 150, P = {l: 36, r: 8, t: 10, b: 24};
+    const iw = W - P.l - P.r, ih = H - P.t - P.b;
+    const ys = xs.map(f);
+    const lo = ymin !== undefined ? ymin : Math.min(...ys) * 0.96;
+    const hi = ymax !== undefined ? ymax : Math.max(...ys) * 1.04;
+    const X = (x) => P.l + (x - xs[0]) / (xs[xs.length-1] - xs[0]) * iw;
+    const Y = (y) => P.t + ih - (y - lo) / ((hi - lo) || 1) * ih;
+
+    let g = '';
+    for (let i = 0; i <= 3; i++) {
+      const v = lo + (hi - lo) * i / 3, y = Y(v);
+      g += `<line x1="${P.l}" x2="${P.l+iw}" y1="${y}" y2="${y}" stroke="${css('--line')}" stroke-width="1" stroke-dasharray="2 4"/>`
+        +  `<text x="${P.l-6}" y="${y+3}" text-anchor="end" font-size="9" font-family="${css('--data')}" fill="${css('--faint')}">${v.toFixed(2)}</text>`;
+    }
+    const d = xs.map((x,i) => `${i?'L':'M'}${X(x).toFixed(1)},${Y(ys[i]).toFixed(1)}`).join('');
+    g += `<path d="${d}" fill="none" stroke="${colour}" stroke-width="2" stroke-linecap="round"/>`;
+
+    (marks || []).forEach((m) => {
+      g += `<line x1="${X(m.x)}" x2="${X(m.x)}" y1="${P.t}" y2="${P.t+ih}" stroke="${css('--faint')}" stroke-width="1" stroke-dasharray="3 3"/>`
+        +  `<text x="${X(m.x)+3}" y="${P.t+10}" font-size="8.5" font-family="${css('--data')}" fill="${css('--faint')}">${m.label}</text>`;
+    });
+
+    const y0 = f(x0);
+    g += `<circle cx="${X(x0)}" cy="${Y(y0)}" r="4.5" fill="${colour}" stroke="${css('--panel')}" stroke-width="2"/>`;
+    g += `<text x="${P.l}" y="${H-6}" font-size="9" font-family="${css('--data')}" fill="${css('--faint')}">${xs[0].toFixed(1)}</text>`
+      +  `<text x="${P.l+iw}" y="${H-6}" text-anchor="end" font-size="9" font-family="${css('--data')}" fill="${css('--faint')}">${xs[xs.length-1].toFixed(1)}</text>`
+      +  `<text x="${P.l+iw/2}" y="${H-6}" text-anchor="middle" font-size="9" font-family="${css('--data')}" fill="${css('--muted')}">${xlabel}</text>`;
+    svg.innerHTML = g;
+  }
+
+  const range = (a,b,n=60) => Array.from({length:n+1}, (_,i) => a + (b-a)*i/n);
+
+  function render() {
+    const chw  = +$('s-chw').value;
+    const cond = +$('s-cond').value;
+    const load = +$('s-load').value;
+
+    $('o-chw').textContent  = chw.toFixed(2) + ' °C';
+    $('o-cond').textContent = cond.toFixed(2) + ' °C';
+    $('o-load').textContent = load.toFixed(0) + ' kW';
+
+    const capft = biquad(M.capft, chw, cond);
+    const eirft = biquad(M.eirft, chw, cond);
+    const avail = M.capKw * capft;
+
+    // PLR is capped by the machine's max; anything above is unmet.
+    const rawPLR = avail > 0 ? load / avail : 0;
+    const plr    = clamp(rawPLR, 0, M.maxPLR);
+    const frac   = plr < M.minPLR && plr > 0 ? Math.min(1, plr / M.minPLR) : 1;
+    const plrEval = Math.max(plr, M.minPLR);           // curve is only valid above min
+    const eirplr = quad(M.plr, plrEval);
+
+    const power = load <= 0 ? 0 : (avail / M.cop) * eirft * eirplr * frac;
+    const served = Math.min(load, avail * M.maxPLR);
+    const cop = power > 0.01 ? served / power : 0;
+
+    $('v-capft').textContent = capft.toFixed(3);
+    $('v-avail').textContent = avail.toFixed(0) + ' kW';
+    $('v-plr').textContent   = plr.toFixed(3);
+    $('v-eir').textContent   = (eirft * eirplr).toFixed(3);
+    $('v-pow').textContent   = power.toFixed(0) + ' kW';
+    $('v-cop').textContent   = power > 0.01 ? cop.toFixed(2) : '—';
+    $('l-plr').textContent   = frac < 1 ? 'below minimum — cycling' : 'demand ÷ available';
+
+    // verdict line
+    let msg, colour;
+    if (load <= 0) {
+      msg = 'No load: the machine is off and draws nothing.'; colour = css('--muted');
+    } else if (rawPLR > M.maxPLR) {
+      const short = load - avail * M.maxPLR;
+      msg = `Demand exceeds what this machine can make at ${cond.toFixed(1)} °C condenser — ${short.toFixed(0)} kW short. `
+          + `Another chiller stages on, or the hour goes unmet.`;
+      colour = css('--hhw');
+    } else if (frac < 1) {
+      msg = `Below the ${M.minPLR} minimum part-load ratio: the machine cycles on and off within the timestep, so efficiency stops improving.`;
+      colour = css('--live');
+    } else {
+      const vsRef = cop / M.cop;
+      msg = `Operating COP ${cop.toFixed(2)} — ${(vsRef*100).toFixed(0)}% of the ${M.cop} rating. `
+          + (cond < 18 ? 'Cool condenser water is doing most of that work.' :
+             cond > 21 ? 'The warm condenser is costing capacity and efficiency.' :
+                         'Mid-range conditions.');
+      colour = css('--cw');
+    }
+    $('verdict').innerHTML =
+      `<span style="width:3px;align-self:stretch;border-radius:2px;background:${colour};flex:none"></span><span>${msg}</span>`;
+
+    // plots
+    plot($('p-capft'), {
+      xs: range(M.ylo, M.yhi), f: (y) => biquad(M.capft, chw, y),
+      x0: cond, xlabel: 'condenser entering °C', colour: css('--chw'),
+    });
+    plot($('p-eirft'), {
+      xs: range(M.ylo, M.yhi), f: (y) => biquad(M.eirft, chw, y),
+      x0: cond, xlabel: 'condenser entering °C', colour: css('--cw'),
+    });
+    plot($('p-plr'), {
+      xs: range(0.05, M.maxPLR), f: (p) => quad(M.plr, Math.max(p, M.minPLR)),
+      x0: Math.max(plr, 0.05), xlabel: 'part load ratio', colour: css('--live'),
+      marks: [{x: M.minPLR, label: 'PLR min'}],
+    });
+  }
+
+  ['s-chw','s-cond','s-load'].forEach((id) => $(id).addEventListener('input', render));
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+  render();
+})();
+</script>
+</body>
+</html>
