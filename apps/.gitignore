@@ -1,6 +1,11 @@
 # EnergyPlus runtime — fetched by scripts/fetch_engine.sh or the Dockerfile.
 # Hundreds of megabytes of binaries; never commit it.
-engine/
+#
+# The leading slash is load-bearing: `engine/` with no slash matches a
+# directory of that name at ANY depth, which silently swallowed
+# server/app/engine/ (jobs.py, results.py, worker.py) and shipped an image
+# that failed at import.
+/engine/
 
 # Python
 server/.venv/
