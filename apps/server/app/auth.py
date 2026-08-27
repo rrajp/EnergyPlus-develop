@@ -45,14 +45,22 @@ class Credentials:
     #: survive a restart. Set DHC_SECRET to keep people logged in.
     ephemeral_secret: bool
 
+    #: True while the shipped demo password is still in force. The sign-in
+    #: screen prints the credentials only in that case -- printing them after
+    #: an operator has set their own would be both wrong and a disclosure on a
+    #: public address.
+    default_credentials: bool
+
 
 def _load() -> Credentials:
     raw = os.environ.get("DHC_SECRET", "")
+    password = os.environ.get("DHC_PASSWORD", "admin123")
     return Credentials(
         username=os.environ.get("DHC_USERNAME", "admin"),
-        password=os.environ.get("DHC_PASSWORD", "admin123"),
+        password=password,
         secret=raw.encode() if raw else secrets.token_bytes(32),
         ephemeral_secret=not raw,
+        default_credentials=password == "admin123",
     )
 
 
@@ -212,4 +220,8 @@ async def logout(response: Response) -> dict[str, bool]:
 @router.get("/me")
 async def me(request: Request) -> dict[str, object]:
     user = verify(request.cookies.get(COOKIE))
-    return {"user": user, "authenticated": user is not None}
+    return {
+        "user": user,
+        "authenticated": user is not None,
+        "usingDefaultCredentials": _creds.default_credentials,
+    }

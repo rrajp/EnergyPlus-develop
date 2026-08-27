@@ -46,8 +46,11 @@ const json = (body: unknown): RequestInit => ({
 })
 
 export const api = {
-  session: () => request<{ user: string | null; authenticated: boolean }>(
-    '/api/auth/me'),
+  session: () => request<{
+    user: string | null
+    authenticated: boolean
+    usingDefaultCredentials: boolean
+  }>('/api/auth/me'),
 
   login: (username: string, password: string) =>
     request<{ user: string }>('/api/auth/login', json({ username, password })),

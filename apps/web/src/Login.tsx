@@ -11,7 +11,7 @@ import { useStore } from './store'
 import { IconBolt } from './ui'
 
 export function Login() {
-  const { signIn, signingIn, authError } = useStore()
+  const { signIn, signingIn, authError, defaultCredentials } = useStore()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const first = useRef<HTMLInputElement>(null)
@@ -79,11 +79,13 @@ export function Login() {
           <IconBolt />{signingIn ? 'Signing in…' : 'Sign in'}
         </button>
 
-        <p className="signin-note">
-          Default login is <code>admin</code> / <code>admin123</code>. Set
-          {' '}<code>DHC_USERNAME</code> and <code>DHC_PASSWORD</code> before
-          putting this on a public address.
-        </p>
+        {defaultCredentials && (
+          <p className="signin-note">
+            Default login is <code>admin</code> / <code>admin123</code>. Set
+            {' '}<code>DHC_USERNAME</code> and <code>DHC_PASSWORD</code> before
+            putting this on a public address.
+          </p>
+        )}
       </form>
     </div>
   )

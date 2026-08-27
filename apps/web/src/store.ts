@@ -132,6 +132,8 @@ interface State {
   user: string | null
   authChecked: boolean
   signingIn: boolean
+  /** Server-reported: the shipped demo password is still in force. */
+  defaultCredentials: boolean
   authError: string | null
 
   job: JobSummary | null
@@ -255,6 +257,7 @@ export const useStore = create<State & Actions>((set, get) => ({
   catalog: null, weather: [], loads: [], engine: null, booting: true,
 
   user: null, authChecked: false, signingIn: false, authError: null,
+  defaultCredentials: false,
 
   job: null, jobState: null, progress: 0, phase: '',
   log: [], telemetry: [], schematic: null, results: null,
@@ -268,8 +271,8 @@ export const useStore = create<State & Actions>((set, get) => ({
 
   async checkSession() {
     try {
-      const { user } = await api.session()
-      set({ user, authChecked: true })
+      const { user, usingDefaultCredentials } = await api.session()
+      set({ user, authChecked: true, defaultCredentials: usingDefaultCredentials })
       if (user) await get().boot()
       else set({ booting: false })
     } catch {
