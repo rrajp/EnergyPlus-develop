@@ -1,0 +1,18 @@
+# Anything the image builds for itself, or must never contain.
+engine/
+server/.venv/
+server/var/
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+
+**/__pycache__/
+**/*.pyc
+**/.DS_Store
+**/*.log
+
+Dockerfile
+.dockerignore
+.gitignore
+README.md
+scripts/

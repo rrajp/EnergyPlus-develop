@@ -1,0 +1,23 @@
+# EnergyPlus runtime — fetched by scripts/fetch_engine.sh or the Dockerfile.
+# Hundreds of megabytes of binaries; never commit it.
+engine/
+
+# Python
+server/.venv/
+**/__pycache__/
+*.py[cod]
+
+# Runtime state: generated models, EnergyPlus output, uploaded EPW/CSV assets.
+server/var/
+
+# Node / build output
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+npm-debug.log*
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp

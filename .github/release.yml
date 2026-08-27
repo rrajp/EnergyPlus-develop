@@ -1,0 +1,17 @@
+changelog:
+  exclude:
+    labels:
+      - DoNotPublish
+  categories:
+    - title: New Features 🌟
+      labels:
+        - NewFeature
+    - title: Performance Enhancing Changes 🏁
+      labels:
+        - Performance
+    - title: Defects Repaired 🪲
+      labels:
+        - Defect
+    - title: Under the Hood Refactoring ⚙
+      labels:
+        - Refactoring
