@@ -12,6 +12,8 @@ import {
 } from './ui'
 import { fmt } from './charts'
 import { isRunning, useStore } from './store'
+import { applyTheme, readTheme, storeTheme } from './theme'
+import type { Theme } from './theme'
 import type { Step } from './store'
 
 const STEPS: { key: Step; label: string }[] = [
@@ -295,26 +297,14 @@ function PlantStrip({ onExpand }: { onExpand: () => void }) {
 
 /* ---- theme ------------------------------------------------------------- */
 
-type Theme = 'system' | 'light' | 'dark'
-
 function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    // ?theme= wins, so a shared link can pin how it looks.
-    const q = new URLSearchParams(location.search).get('theme')
-    if (q === 'light' || q === 'dark' || q === 'system') return q
-    try {
-      return (localStorage.getItem('pw-theme') as Theme) || 'system'
-    } catch {
-      return 'system'
-    }
-  })
+  const [theme, setThemeState] = useState<Theme>(readTheme)
 
-  useEffect(() => {
-    const root = document.documentElement
-    if (theme === 'system') root.removeAttribute('data-theme')
-    else root.setAttribute('data-theme', theme)
-    try { localStorage.setItem('pw-theme', theme) } catch { /* private mode */ }
-  }, [theme])
+  const setTheme = (next: Theme) => {
+    setThemeState(next)
+    applyTheme(next)
+    storeTheme(next)
+  }
 
   const next: Record<Theme, Theme> = { system: 'light', light: 'dark', dark: 'system' }
   const label = { system: 'Match system', light: 'Light', dark: 'Dark' }[theme]

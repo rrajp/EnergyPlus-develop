@@ -66,7 +66,10 @@ the CLI. That buys three things the command line cannot give:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/health` | engine discovery and version |
+| `POST` | `/api/auth/login` | sign in, sets the session cookie |
+| `POST` | `/api/auth/logout` | sign out |
+| `GET` | `/api/auth/me` | current session, if any |
+| `GET` | `/api/health` | engine discovery and version (public) |
 | `GET` | `/api/catalog` | equipment library mined from the shipped DataSets |
 | `GET`/`POST` | `/api/assets/weather` | list / upload EPW files |
 | `GET`/`POST` | `/api/assets/loads` | list / upload 8,760-hour load CSVs |
@@ -81,6 +84,31 @@ the CLI. That buys three things the command line cannot give:
 
 Shareable links: `/?job=<id>` attaches to any run, `&view=profile` opens a
 specific results tab, `&theme=light` pins the appearance.
+
+## Signing in
+
+The app sits behind a single shared login, `admin` / `admin123` by default.
+
+The gate is enforced on the server: the same session cookie guards every
+`/api` route and the telemetry WebSocket, not just the screen. A login page
+that only hid the UI would leave `POST /api/jobs` open to anyone with the URL.
+`GET /api/health` stays public so container health probes work, and the SPA
+shell is served to everyone — it renders the login form.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DHC_USERNAME` | `admin` | operator username |
+| `DHC_PASSWORD` | `admin123` | operator password |
+| `DHC_SECRET` | generated at boot | session signing key |
+
+**Change the password before putting this on a public address**, and set
+`DHC_SECRET` to a long random string — otherwise a fresh key is generated at
+startup and every session is invalidated on restart.
+
+This is one shared credential, not a user system: no accounts, no roles, no
+password reset, and no rate limiting on the login endpoint. It keeps a
+demo deployment from being world-writable; it is not what you would put in
+front of customer data.
 
 ## Deploying with Docker
 
@@ -219,6 +247,8 @@ edition a project is filed under before relying on the verdict.
 | `DHC_CORS_ORIGINS` | `localhost:5173` | comma-separated dev origins |
 | `DHC_WEATHER_DIRS` | – | extra EPW directories, colon-separated |
 | `PORT` | `8000` | listen port (the container honours it) |
+| `DHC_USERNAME` / `DHC_PASSWORD` | `admin` / `admin123` | operator login |
+| `DHC_SECRET` | generated at boot | session signing key |
 
 Engine discovery order: `ENERGYPLUS_DIR`, `apps/engine/EnergyPlus-*`, this
 repo's `build/Products`, the platform's standard install location, then

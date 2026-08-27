@@ -106,6 +106,12 @@ ENV ENERGYPLUS_DIR=/opt/energyplus \
     DHC_JOB_RETENTION=5 \
     PORT=8000
 
+# The login defaults to admin/admin123 in app/auth.py. It is deliberately NOT
+# baked in as ENV here: that would put the password in image metadata for
+# anyone running `docker inspect`. Set DHC_USERNAME and DHC_PASSWORD at deploy
+# time, plus DHC_SECRET (a long random string) so sessions survive a restart —
+# without it a new signing key is generated at boot and everyone is signed out.
+
 # Prove the shipped environment actually works: the binary links, the API
 # library loads, and the equipment catalog parses. A broken engine should
 # fail the build, not the first user's run.
