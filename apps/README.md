@@ -154,6 +154,11 @@ Render injects `PORT`; the container honours it. Set `DHC_PASSWORD` and
 it the signing key is regenerated at boot and everyone is signed out on every
 restart.
 
+Measured in a container capped at 512 MB, the free plan's limit: **53 MB idle,
+361 MB peak** during an annual run, which completed. That leaves roughly 150 MB
+of headroom, which is why `DHC_MAX_CONCURRENT` is pinned to 1 — a second
+concurrent run would not fit.
+
 **What the free plan means here.** The instance sleeps after roughly 15 minutes
 of inactivity and its disk is ephemeral, so the first request after a sleep
 pays a cold start *and* finds no previous runs: completed simulations and their
